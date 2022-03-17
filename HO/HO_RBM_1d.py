@@ -1,11 +1,9 @@
 import numpy as np
-import math
 import scipy as sci
-from scipy import integrate
 from scipy import special
+from scipy import integrate
 import matplotlib.pyplot as plt
-import multiprocessing as mp
-import pathos
+
 ### NOTE: hbar = 1 in this demo
 ### First define exact solutions to compare numerical solutions to.
 def getPsi_x(n,nu):
@@ -48,43 +46,102 @@ def getExactE(n,omega):
 
     '''
     return (n+ .5)*omega
+def V(x,x0):
+    return .5*(x**2)/x0**4
+def construct_H(V,params):
+    '''
+    Uses 2nd order finite difference scheme to construct a discretized differential H operator
+
+    Parameters
+    ----------
+    V : TYPE
+        DESCRIPTION.
+    params : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    H : TYPE
+        DESCRIPTION.
+
+    '''
+    off_diag = np.zeros(m)
+    off_diag[1] = 1
+    H = -1*(-2*np.identity(m) + sci.linalg.toeplitz(off_diag))/(2*mu*h**2) + np.diag(V(x_array,params))
+    return H
+def solve(H,grid):
+    evals,evects = np.linalg.eigh(H)
+    evects = evects.T
+    for i,evect in enumerate(evects):
+        norm = np.sqrt(1/sci.integrate.simpson(evect*evect,grid))
+        evects[i] = evects[i]*norm
+    return evals,evects
 ###  HO parameters
 mu = 1.0
 omega = 1.0
-n_max = 3 # maximum number of HO states to consider
+
 # define oscillator length scale x0 
 x0 = np.sqrt(1/mu*omega)
-# define n array
-n_vals = np.arange(0,n_max,1)
-x0_vals = np.linspace(x0, 5*x0,5)
+
 
 ### grid spacing
-h = 10**(-3)
+h = 10**(-2)
 
 # define the domain
-x_a = -5 # left boundary 
-x_b = 5 # right boundary 
+x_a = -10 # left boundary 
+x_b = 10 # right boundary 
 
 x_array = np.arange(x_a,x_b+h,h)
 m = len(x_array) 
-print(m)
+print('Dimensions: ',m)
 ## Now numericaly solve the 1-d SE. We do this in 2 ways. First we construct 
 ## the discretized representation of the Hamiltonian H and use LA to diagonalize it
 ## Second, we use an iterative scheme to solve the ODE without explictly constructing
 ## the matrix H. 
-def V(x,x0):
-    return .5*(x**2)/x0**4
+'''
+H = construct_H(V, x0)
+evals, evects = solve(H,x_array)
 
-off_diag = np.zeros(m)
-off_diag[1] = 1
+plt.plot(x_array,evects[0])
 
-H = -1*(-2*np.identity(m) + sci.linalg.toeplitz(off_diag))/(2*mu*h**2) + np.diag(V(x_array,x0))
-
-evals,evects = np.linalg.eigh(H)
-norm = np.sqrt(1/sci.integrate.simpson(evects[:,0]*evects[:,0],x_array))
-print(norm)
-plt.plot(x_array,evects[:,0]*norm)
 plt.show()
+
+plt.plot(getExactE(np.arange(0,31,1),omega),'o',label='exact')
+plt.plot(evals[:30],'o',label='numerical')
+plt.legend()
+plt.show()
+'''
+
+## Note we see that the eigenvalues are disagreeing at around n = 13. We will only use sols up to n=13
+# Take SVD
+#u, s, vh = np.linalg.svd(evects)
+
+# Now that we know that the solutions have exponential behaviour, we can apply RBM to the problem.
+# To test the method, we need to choose some sampling of the parameter space (x0,n) 
+# First we generate expensive solutions by determined by some sampling method. For now,
+# we choose these manually.
+# define n array
+
+n_vals = [0,1,5]
+x0_vals = [x0,2*x0,3*x0]
+
+#now we solve the system for these choices of parameters
+# initialize solution array. T has form T[i][j][k], i = x0, j=n, k = solution comps
+T = np.zeros((len(x0_vals),len(n_vals),m)) 
+
+# compute solutions
+for i,x0_sample in enumerate(x0_vals):
+    H = construct_H(V, x0_sample)
+    evals, evects = solve(H,x_array)
+    for j,n_sample in enumerate(n_vals):
+        T[i][j] = evects[n_sample]
+for i in range(len(n_vals)):
+    plt.plot(x_array,T[i][0],label='x0= '+str(x0))
+plt.legend()
+plt.show()
+
+# Now we can construct our RBM
+
 '''
 
 #### Now numericaly solve the 1-d SE. We use 4th order Runge-Kutta here.
